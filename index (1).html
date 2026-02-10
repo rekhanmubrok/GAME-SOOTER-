@@ -1,0 +1,297 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<title>Game Perang Survival RPG</title>
+<style>
+body {
+    background:#111;
+    color:white;
+    text-align:center;
+    font-family:Arial;
+}
+canvas {
+    background:#222;
+    display:block;
+    margin:auto;
+    border:2px solid white;
+}
+</style>
+</head>
+<body>
+
+<h2>🎮 Survival Shooter RPG</h2>
+<p>WASD Move | Space Shoot | E Ult | H Heal | Shift Dash | Q Shield</p>
+
+<canvas id="game" width="600" height="400"></canvas>
+
+<script>
+const canvas = document.getElementById("game");
+const ctx = canvas.getContext("2d");
+
+let keys = {};
+let bullets=[], enemies=[], bossBullets=[];
+let score=0;
+
+// ===== PLAYER =====
+let player = {
+    x:280,y:300,size:20,
+    speed:4,
+    hp:120,maxHP:120,
+    shield:40,maxShield:40,
+    energy:100,maxEnergy:100,
+    level:1,
+    damage:4, // damage awal diperjelas
+    dashCD:0,
+    healCD:0,
+    shieldCD:0
+};
+
+// ===== BOSS =====
+let boss=null;
+let bossHP=0,bossMaxHP=0,bossShield=0;
+let bossActive=false;
+let bossTier=1;
+
+// ===== INPUT =====
+document.addEventListener("keydown",e=>keys[e.key.toLowerCase()]=true);
+document.addEventListener("keyup",e=>keys[e.key.toLowerCase()]=false);
+
+// ===== SKILLS =====
+document.addEventListener("keydown",e=>{
+    if(e.code==="Space"){
+        bullets.push({
+            x:player.x+player.size/2-2,
+            y:player.y,
+            w:4,h:10,
+            s:7,
+            d:player.damage
+        });
+    }
+
+    if(e.key==="e" && player.energy>=40){
+        for(let i=-4;i<=4;i++){
+            bullets.push({
+                x:player.x+player.size/2+i*6,
+                y:player.y,
+                w:6,h:16,
+                s:9,
+                d:player.damage*2
+            });
+        }
+        player.energy-=40;
+    }
+
+    if(e.key==="h" && player.hp<=20 && player.healCD<=0){
+        player.hp=Math.min(player.maxHP,player.hp+40);
+        player.healCD=1800;
+    }
+
+    if(e.key==="shift" && player.dashCD<=0 && player.energy>=15){
+        let dx=(keys["d"]?1:0)-(keys["a"]?1:0);
+        let dy=(keys["s"]?1:0)-(keys["w"]?1:0);
+        player.x+=dx*60;
+        player.y+=dy*60;
+        player.energy-=15;
+        player.dashCD=1200;
+    }
+
+    if(e.key==="q" && player.shieldCD<=0){
+        player.shield=player.maxShield;
+        player.shieldCD=1500;
+    }
+});
+
+// ===== REGEN =====
+setInterval(()=>{
+    player.energy=Math.min(player.maxEnergy,player.energy+1);
+    player.shield=Math.min(player.maxShield,player.shield+0.2);
+},100);
+
+// ===== ENEMY SPAWN (HP RENDAH & MATI CEPAT) =====
+setInterval(()=>{
+    if(!bossActive){
+        enemies.push({
+            x:Math.random()*(600-20),
+            y:0,
+            size:20,
+            hp:6 + Math.floor(player.level / 2), // HP rendah
+            speed:2 + player.level*0.1
+        });
+    }
+},1000);
+
+// ===== GAME LOOP =====
+function loop(){
+ctx.clearRect(0,0,600,400);
+
+// ===== MOVE + BARRIER =====
+if(keys["w"])player.y-=player.speed;
+if(keys["s"])player.y+=player.speed;
+if(keys["a"])player.x-=player.speed;
+if(keys["d"])player.x+=player.speed;
+
+player.x=Math.max(0,Math.min(600-player.size,player.x));
+player.y=Math.max(0,Math.min(400-player.size,player.y));
+
+// ===== DRAW PLAYER =====
+ctx.fillStyle="lime";
+ctx.fillRect(player.x,player.y,player.size,player.size);
+
+// ===== BULLETS =====
+for(let i=bullets.length-1;i>=0;i--){
+    let b=bullets[i];
+    b.y-=b.s;
+    ctx.fillStyle="yellow";
+    ctx.fillRect(b.x,b.y,b.w,b.h);
+    if(b.y<0)bullets.splice(i,1);
+}
+
+// ===== ENEMIES =====
+for(let i=enemies.length-1;i>=0;i--){
+    let e=enemies[i];
+    e.y+=e.speed;
+    ctx.fillStyle="red";
+    ctx.fillRect(e.x,e.y,e.size,e.size);
+
+    // Player collision
+    if(
+        player.x<e.x+e.size &&
+        player.x+player.size>e.x &&
+        player.y<e.y+e.size &&
+        player.y+player.size>e.y
+    ){
+        if(player.shield>0)player.shield-=20;
+        else player.hp-=15;
+        enemies.splice(i,1);
+        continue;
+    }
+
+    // Bullet hit
+    for(let j=bullets.length-1;j>=0;j--){
+        let b=bullets[j];
+        if(
+            b.x<e.x+e.size &&
+            b.x+b.w>e.x &&
+            b.y<e.y+e.size &&
+            b.y+b.h>e.y
+        ){
+            e.hp-=b.d;
+            bullets.splice(j,1);
+        }
+    }
+
+    if(e.hp<=0){
+        enemies.splice(i,1);
+        score+=10;
+    }
+}
+
+// ===== LEVEL UP =====
+if(score>=player.level*100){
+    player.level++;
+    player.damage+=2;
+    player.maxHP+=20;
+    player.maxEnergy+=10;
+    player.hp=player.maxHP;
+}
+
+// ===== BOSS =====
+if(score>=bossTier*500 && !bossActive){
+    bossTier++;
+    boss={x:200,y:40,size:80};
+    bossMaxHP=150+bossTier*80;
+    bossHP=bossMaxHP;
+    bossShield=80+bossTier*40;
+    bossActive=true;
+}
+
+if(bossActive){
+    boss.x+=Math.sin(Date.now()/300)*2;
+    ctx.fillStyle="purple";
+    ctx.fillRect(boss.x,boss.y,boss.size,boss.size);
+
+    if(Math.random()<0.04){
+        bossBullets.push({
+            x:boss.x+boss.size/2,
+            y:boss.y+boss.size,
+            w:8,h:12,
+            s:4+bossTier
+        });
+    }
+
+    for(let i=bullets.length-1;i>=0;i--){
+        let b=bullets[i];
+        if(
+            b.x<boss.x+boss.size &&
+            b.x+b.w>boss.x &&
+            b.y<boss.y+boss.size &&
+            b.y+b.h>boss.y
+        ){
+            if(bossShield>0)bossShield-=b.d;
+            else bossHP-=b.d;
+            bullets.splice(i,1);
+        }
+    }
+
+    if(bossHP<=0){
+        bossActive=false;
+        score+=200;
+    }
+}
+
+// ===== BOSS BULLETS =====
+for(let i=bossBullets.length-1;i>=0;i--){
+    let bb=bossBullets[i];
+    bb.y+=bb.s;
+    ctx.fillStyle="orange";
+    ctx.fillRect(bb.x,bb.y,bb.w,bb.h);
+
+    if(
+        bb.x<player.x+player.size &&
+        bb.x+bb.w>player.x &&
+        bb.y<player.y+player.size &&
+        bb.y+bb.h>player.y
+    ){
+        if(player.shield>0)player.shield-=25;
+        else player.hp-=25;
+        bossBullets.splice(i,1);
+    }
+
+    if(bb.y>400)bossBullets.splice(i,1);
+}
+
+// ===== UI =====
+ctx.fillStyle="red";
+ctx.fillRect(10,360,200,10);
+ctx.fillStyle="lime";
+ctx.fillRect(10,360,(player.hp/player.maxHP)*200,10);
+
+ctx.fillStyle="cyan";
+ctx.fillRect(10,375,(player.energy/player.maxEnergy)*200,8);
+
+ctx.fillStyle="blue";
+ctx.fillRect(10,388,(player.shield/player.maxShield)*200,6);
+
+ctx.fillStyle="white";
+ctx.fillText("Score: "+score+" | Lv: "+player.level,10,20);
+
+// Cooldown
+player.dashCD--;
+player.healCD--;
+player.shieldCD--;
+
+// GAME OVER
+if(player.hp<=0){
+    ctx.fillStyle="red";
+    ctx.font="30px Arial";
+    ctx.fillText("GAME OVER",220,200);
+    return;
+}
+
+requestAnimationFrame(loop);
+}
+loop();
+</script>
+</body>
+</html>
